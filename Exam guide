@@ -1,0 +1,102 @@
+This should be done for both the instances
+sudo apt update -y
+sudo apt install software-properties-common -y
+sudo add-apt-repository --yes --update ppa:ansible/ansible
+sudo apt install ansible -y
+
+ansible --version
+------------------------------------------------------
+Copy .pem File to Controller EC2:
+From your local machine, run:
+scp -i C:\Users\YourUser\Downloads\YourKey.pem C:\Users\YourUser\Downloads\YourKey.pem ubuntu@<controller-ec2-public-ip>:~/.ssh/
+
+After copying, SSH into your controller EC2 and set correct permissions:
+ssh -i ~/.ssh/YourKey.pem ubuntu@<controller-ec2-public-ip>
+chmod 600 ~/.ssh/YourKey.pem
+--------------------------------------------------------
+install jenkins on jenkins master node
+wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
+sudo sh -c 'echo deb https://pkg.jenkins.io/debian binary/ > /etc/apt/sources.list.d/jenkins.list'
+sudo apt update
+sudo apt install -y openjdk-17-jdk jenkins
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+
+get admin password:
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+-------------------------------------------------------
+Create jenkinsfile in your repo root:
+pipeline {
+  agent any
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'master', url: 'https://github.com/<your-username>/<your-repo-name>.git'
+      }
+    }
+    stage('Build') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+    stage('Install Tomcat & Deploy') {
+      steps {
+        sh 'ansible-playbook ansible/deploy.yml'
+      }
+    }
+  }
+}
+---------------------------------------------------
+ssh your application node and do the below task
+Configure Inventory File
+On the Application Node EC2, edit the inventory file:
+vi inventory.ini
+sudo nano /etc/ansible/hosts
+
+Add the managed EC2 details:
+[app]
+<app-node-ec2-public-ip> ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/YourKey.pem
+Test Ansible Connection:
+Run:
+ansible webservers -m ping
+Expected output:
+<managed-ec2-public-ip> | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+----------------------------------------------------
+Create ansible playbook:
+vi ansible/deploy.yml
+- hosts: app
+  become: true
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-11-jdk
+        state: present
+    - name: Install Tomcat 9
+      apt:
+        name: tomcat9
+        state: present
+    - name: Copy WAR file
+      copy:
+        src: target/addressbook.war
+        dest: /var/lib/tomcat9/webapps/addressbook.war
+    - name: Restart Tomcat
+      service:
+        name: tomcat9
+        state: restarted
+-----------------------------------------------------
+configure github webhook for jenkins:
+in jenkins:
+Install "GitHub Integration" or use "GitHub plugin".
+In the project/job, select "GitHub hook trigger for GITScm polling".
+On GitHub: Go to repo → Settings → Webhooks → Add webhook:
+Payload URL: http://<Jenkins_Master_Public_IP>:8080/github-webhook/
+Content type: application/json
+Trigger: "Just the push event"
+-----------------------------------------------------
+Validate Application Running
+Access Tomcat:
+Go to http://<App_Node_Public_IP>:8080/addressbook/ in browser.
+----------------------------------------------------
